@@ -117,6 +117,13 @@ npm adduser
 npm publish
 ```
 
+版本更新
+
+```
+npm version patch
+npm publish
+```
+
 
 
 
