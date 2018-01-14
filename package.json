@@ -22,5 +22,13 @@
     "chokidar": "^2.0.0",
     "glob": "^7.1.2",
     "lodash": "^4.17.4"
-  }
+  },
+  "keywords": [
+    "import",
+    "require",
+    "tool",
+    "auto",
+    "javascript",
+    "cli"
+  ]
 }
