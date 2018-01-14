@@ -1,0 +1,10 @@
+{
+    "extname": ".vue",
+    "from": "demo/pages",
+    "to": "demo/router/index.js",
+    "template": "const moduleName = () => import(modulePath)",
+    "ignored": [
+        "demo/pages/pageA.vue",
+        "demo/pages/**/*.js"
+    ]
+}
