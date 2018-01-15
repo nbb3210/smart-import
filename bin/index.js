@@ -1,155 +1,82 @@
 #!/usr/bin/env node
-const path = require('path')
 const fs = require('fs')
-const readline = require('readline')
-const _ = require('lodash')
-const chokidar = require('chokidar')
+const path = require('path')
 const glob = require('glob')
+const chokidar = require('chokidar')
+const _ = require('lodash')
 const config = JSON.parse(fs.readFileSync('smart-import.json'))
-const regex = /\/\*\sautoImport(.*\n)*\/\*\sautoImport\s\*\//g
+
+const CustomEvent = (() => {
+    let events = {}
+    let on = (type, cb) => {
+        if (!events[type]) {
+            events[type] = []
+        }
+        events[type].push(cb)
+    }
+    let emit = (type, data) => {
+        for (let i = 0; i < events[type].length; i++) {
+           events[type][i].apply(this, [data])
+        }
+    }
+    return {
+        on,
+        emit
+    }
+})()
 
 class SmartImport {
-    constructor({ extname, from, to, template, ignored }) {
-        this.extname = extname
-        this.from = _.endsWith(from, '/') ? from : from + '/'
-        this.to = to
-        this.template = template
+    constructor({ from, ignored }) {
+        this.from = from
         this.ignored = ignored
-        this.modules = []
-        this.watchInstance = {}
+        this.extname = path.extname(from)
+        this.modules = glob.sync(from, {
+            ignore: ignored
+        })
     }
 
     init() {
-        glob
-            .sync(`${this.from}**/*${this.extname}`, {
-                ignore: this.ignored
-            })
-            .forEach(file => {
-                this.addModule(file)
-            })
-        this.doImport(
-            `Import ${this.modules.length} modules by smart-import...`
-        )
+        CustomEvent.on('push', m => {
+            console.log('Do pushing')
+            this.modules.push(m)
+        })
+        CustomEvent.on('remove', m => {
+            console.log('Do removing')
+            _.remove(this.modules, p => p === m)
+        })
         this.watch()
     }
 
     watch() {
-        this.watchInstance = chokidar
-            .watch(this.from, {
-                ignored: this.ignored
+        const { from, ignored, extname, modules } = this
+        chokidar
+            .watch(path.dirname(from), {
+                ignoreInitial: true,
+                ignored
             })
-            .on('add', file => {
-                if (!this.checkModule(file)) {
-                    this.addModule(file)
-                    this.doImport(
-                        `Add new module [${this.getModuleName(
-                            file
-                        )}] by smart-import...`
-                    )
-                }
-            })
-            .on('unlink', file => {
-                this.unlinkModule(file)
-                this.doImport(
-                    `Remove module [${this.getModuleName(
-                        file
-                    )}] by smart-import...`
-                )
-            })
-    }
-
-    getModuleName(file, extname = this.extname) {
-        let moduleName = path.basename(file, extname)
-        if (moduleName.match('-')) {
-            moduleName = moduleName.replace(
-                /(-)(.{1})/,
-                (match, p1, p2, offset, string) => p2.toUpperCase()
+            .on(
+                'add',
+                this.checkExt(file => {
+                    CustomEvent.emit('push', file)
+                })
             )
+            .on(
+                'unlink',
+                this.checkExt(file => {
+                    CustomEvent.emit('remove', file)
+                })
+            )
+    }
+
+    checkExt(cb) {
+        const { extname } = this
+        return file => {
+            if (path.extname(file) === extname) {
+                cb(file)
+            }
         }
-        return moduleName
-    }
-
-    getImportPath(target, source) {
-        return path.relative(path.dirname(target), source)
-    }
-
-    checkModule(file) {
-        return (
-            _.findIndex(this.modules, [
-                'moduleName',
-                this.getModuleName(file)
-            ]) !== -1
-        )
-    }
-
-    addModule(file) {
-        this.modules.push({
-            moduleName: this.getModuleName(file, this.extension),
-            importPath: this.getImportPath(this.to, file)
-        })
-    }
-
-    unlinkModule(file) {
-        _.remove(
-            this.modules,
-            p => p.moduleName === this.getModuleName(file, this.extension)
-        )
-    }
-
-    fillTemplate(template, moduleName, importPath) {
-        return template
-            .replace('moduleName', moduleName)
-            .replace('modulePath', `'${importPath}'`)
-    }
-
-    makeImportStr(modules, template) {
-        let str = ''
-        modules.forEach((m, index) => {
-            str =
-                str +
-                this.fillTemplate(template, m.moduleName, m.importPath) +
-                (modules.length - 1 === index ? '' : '\n')
-        })
-        return str
-    }
-
-    doImport(msg) {
-        readline.clearLine(process.stdout, 0)
-        readline.cursorTo(process.stdout, 0)
-        process.stdout.write(msg)
-        let importStr = this.makeImportStr(this.modules, this.template)
-        fs.readFile(this.to, 'utf8', (err, data) => {
-            if (err) {
-                console.log(err)
-            }
-            let result = ''
-            if (data.match(regex)) {
-                result = data.replace(
-                    regex,
-                    `/* smartImport */
-${importStr}
-/* smartImport */`
-                )
-            } else {
-                result = data.replace(
-                    /(.*import.*)(\n)([^(import)])/,
-                    (match, p1, p2, p3, offset, string) => {
-                        return `${p1}
-/* smartImport */
-${importStr}
-/* smartImport */
-${p3}`
-                    }
-                )
-            }
-            fs.writeFile(this.to, result, 'utf8', function(err) {
-                if (err) {
-                    console.log(err)
-                }
-            })
-        })
     }
 }
 
 let smartImport = new SmartImport(config)
-smartImport.watch()
+smartImport.init()
